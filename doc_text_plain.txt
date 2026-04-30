@@ -1,0 +1,597 @@
+PRODUCT REQUIREMENTS DOCUMENT
+StockDB Exchange
+A Database-Centric Stock Exchange Platform
+Version
+1.0
+Date
+March 2026
+Stack
+React · Node.js · SQL
+Type
+Database Project PRD
+1. Project Overview
+1.1 Purpose
+StockDB Exchange is a database project that simulates a real-world stock exchange. The primary learning objective is to design and implement robust relational database schemas, advanced SQL queries, stored procedures, triggers, transactions, and indexing strategies — with a working frontend and backend tying it all together.
+1.2 Project Goals
+Design a normalized relational database schema covering users, stocks, orders, trades, wallets, and audit logs.
+Implement all core exchange logic (order matching, settlement, portfolio tracking) at the database layer using stored procedures, triggers, and views.
+Build a Node.js REST API that acts as a thin layer over the database — business logic lives in SQL, not application code.
+Deliver a React frontend that visualizes the order book, trade history, portfolio, and real-time price charts.
+Demonstrate advanced database concepts: ACID transactions, indexing, query optimization, and concurrency control.
+1.3 Scope
+In Scope:
+User registration, authentication, and session management
+Stock listings and price data
+Order placement: Market, Limit, and Stop-Loss orders
+Order book management and real-time matching engine (via DB triggers/procedures)
+Trade execution, settlement, and wallet/balance management
+Portfolio tracking and P&amp;L calculation
+Admin panel: stock management, user overview, system stats
+Audit logging for all critical operations
+Out of Scope:
+Real-time WebSocket market data feeds (mock/polling acceptable)
+Payment gateway integration
+Regulatory compliance (KYC/AML)
+Mobile native apps
+2. System Architecture
+2.1 Technology Stack
+Layer
+Technology
+Responsibility
+Frontend
+React.js + Tailwind CSS
+UI, order forms, charts, order book display
+API Layer
+Node.js + Express.js
+REST endpoints, auth middleware, thin logic layer
+Database
+PostgreSQL / MySQL
+ALL business logic, stored procedures, triggers, views
+Auth
+JWT + bcrypt
+Token-based sessions, password hashing
+ORM/Driver
+pg / mysql2 (raw SQL)
+Direct SQL calls — no ORM to showcase DB skills
+2.2 Architecture Principles
+Database-First: All business logic (order matching, balance checks, trade settlement) is implemented as stored procedures and triggers.
+Thin API: Node.js endpoints only validate HTTP input and call stored procedures — no business logic in JavaScript.
+ACID Compliance: Every trade execution runs inside a database transaction to ensure atomicity and consistency.
+Audit Everything: Triggers automatically log inserts/updates on critical tables to an audit log.
+3. Database Schema Design
+This is the core deliverable of the project. The schema must be in 3NF and demonstrate proper normalization, use of constraints, indexes, and referential integrity.
+3.1 Tables Overview
+Table
+Description
+Key Relationships
+users
+Registered exchange users
+Has wallet, orders, trades
+wallets
+Cash balance per user
+Belongs to user; updated on trade settlement
+stocks
+Listed tradeable securities
+Referenced by orders, trades, price_history
+price_history
+OHLCV price data per stock per interval
+Belongs to stock
+orders
+All buy/sell orders (open, filled, cancelled)
+Belongs to user &amp; stock; linked to trades
+order_book
+View of currently open orders
+Derived view from orders table
+trades
+Executed matches between orders
+Links buy_order and sell_order
+portfolios
+Current stock holdings per user
+Aggregated from trades
+audit_log
+Immutable log of all critical DB events
+Populated by triggers
+sessions
+Active JWT sessions for auth
+Belongs to user
+3.2 Core Table Definitions
+users
+Column
+Type
+Constraints
+Notes
+user_id
+SERIAL / UUID
+PRIMARY KEY
+Auto-generated unique ID
+username
+VARCHAR(50)
+UNIQUE, NOT NULL
+Login identifier
+email
+VARCHAR(150)
+UNIQUE, NOT NULL
+Verified email
+password_hash
+VARCHAR(255)
+NOT NULL
+bcrypt hash, never plaintext
+role
+ENUM(&apos;user&apos;,&apos;admin&apos;)
+DEFAULT &apos;user&apos;
+Access control
+is_active
+BOOLEAN
+DEFAULT TRUE
+Soft delete flag
+created_at
+TIMESTAMP
+DEFAULT NOW()
+Registration time
+wallets
+Column
+Type
+Constraints
+Notes
+wallet_id
+SERIAL
+PRIMARY KEY
+
+user_id
+INTEGER
+FK → users, UNIQUE
+One wallet per user
+cash_balance
+DECIMAL(18,4)
+NOT NULL, CHECK ≥ 0
+Available cash
+reserved_balance
+DECIMAL(18,4)
+NOT NULL, DEFAULT 0
+Locked for open buy orders
+updated_at
+TIMESTAMP
+ON UPDATE NOW()
+Last modification time
+stocks
+Column
+Type
+Constraints
+Notes
+stock_id
+SERIAL
+PRIMARY KEY
+
+ticker
+VARCHAR(10)
+UNIQUE, NOT NULL
+e.g. AAPL, TSLA
+company_name
+VARCHAR(200)
+NOT NULL
+Full company name
+last_price
+DECIMAL(12,4)
+NOT NULL
+Updated after each trade
+total_shares
+BIGINT
+NOT NULL
+Total shares outstanding
+is_active
+BOOLEAN
+DEFAULT TRUE
+Trading halt flag
+orders
+Column
+Type
+Constraints
+Notes
+order_id
+SERIAL
+PRIMARY KEY
+
+user_id
+INTEGER
+FK → users, NOT NULL
+Who placed the order
+stock_id
+INTEGER
+FK → stocks, NOT NULL
+What stock
+order_type
+ENUM
+(&apos;market&apos;,&apos;limit&apos;,&apos;stop_loss&apos;)
+Type of order
+side
+ENUM(&apos;buy&apos;,&apos;sell&apos;)
+NOT NULL
+Buy or sell
+quantity
+INTEGER
+NOT NULL, CHECK &gt; 0
+Shares requested
+filled_quantity
+INTEGER
+DEFAULT 0
+Shares matched so far
+limit_price
+DECIMAL(12,4)
+NULLABLE
+NULL for market orders
+stop_price
+DECIMAL(12,4)
+NULLABLE
+Trigger price for stop-loss
+status
+ENUM
+(&apos;open&apos;,&apos;partial&apos;,&apos;filled&apos;,&apos;cancelled&apos;)
+Order lifecycle
+created_at
+TIMESTAMP
+DEFAULT NOW()
+Placement time
+updated_at
+TIMESTAMP
+ON UPDATE NOW()
+Last status change
+trades
+Column
+Type
+Constraints
+Notes
+trade_id
+SERIAL
+PRIMARY KEY
+
+buy_order_id
+INTEGER
+FK → orders
+Matched buy order
+sell_order_id
+INTEGER
+FK → orders
+Matched sell order
+stock_id
+INTEGER
+FK → stocks
+Denormalized for query speed
+quantity
+INTEGER
+NOT NULL, CHECK &gt; 0
+Shares traded
+price
+DECIMAL(12,4)
+NOT NULL
+Execution price
+executed_at
+TIMESTAMP
+DEFAULT NOW()
+Trade execution time
+3.3 Indexes
+orders(stock_id, status, side, limit_price) — composite index for fast order book queries
+orders(user_id, status) — user portfolio queries
+trades(stock_id, executed_at) — price history and chart data
+price_history(stock_id, recorded_at) — OHLCV lookups
+users(email), users(username) — unique indexes for auth lookups
+4. Database Logic (Procedures, Triggers, Views)
+The distinguishing feature of this project is that all core business logic is implemented at the database layer, not in the application layer. This demonstrates mastery of advanced SQL.
+4.1 Stored Procedures
+Procedure
+Parameters
+Description
+place_order()
+user_id, stock_id, type, side, qty, limit_price
+Validates balance/holdings, reserves funds, inserts order, triggers matching
+match_orders()
+stock_id
+Core matching engine: pairs best buy vs best sell limit prices, executes trades in a loop
+execute_trade()
+buy_order_id, sell_order_id, qty, price
+Atomic transaction: inserts trade, updates order filled_qty, updates wallets, updates portfolio
+cancel_order()
+order_id, user_id
+Cancels open/partial order, releases reserved balance
+settle_trade()
+trade_id
+Releases reserved amounts, transfers cash, transfers shares in portfolio
+deposit_funds()
+user_id, amount
+Credits wallet cash_balance, logs to audit
+withdraw_funds()
+user_id, amount
+Debits wallet with balance check, logs to audit
+4.2 Triggers
+Trigger
+Event
+Action
+after_order_insert
+AFTER INSERT on orders
+Calls match_orders() for the stock to check for immediate matches
+after_trade_insert
+AFTER INSERT on trades
+Updates stocks.last_price, inserts into price_history
+before_order_cancel
+BEFORE UPDATE on orders (status→cancelled)
+Validates order belongs to user; prevents illegal cancellations
+audit_order_changes
+AFTER INSERT/UPDATE on orders
+Writes snapshot to audit_log with old and new status
+audit_trade_execution
+AFTER INSERT on trades
+Logs trade details to audit_log
+audit_wallet_changes
+AFTER UPDATE on wallets
+Logs balance changes with before/after values
+4.3 Views
+View
+Description
+v_order_book
+Aggregated buy/sell levels per stock — price, total qty, number of orders. Used by the frontend order book widget.
+v_user_portfolio
+Current holdings per user: stock, quantity held, average buy price, current price, unrealized P&amp;L.
+v_trade_history
+Recent trades per stock with buyer/seller info (anonymized) and execution price.
+v_open_orders
+All open and partial orders per user with fill progress percentage.
+v_stock_summary
+Each stock with last price, 24h change %, volume, bid/ask spread from order book.
+4.4 Order Matching Algorithm
+The matching engine (match_orders stored procedure) implements price-time priority (FIFO):
+When a new order is inserted, the AFTER INSERT trigger fires match_orders(stock_id).
+match_orders fetches the best open buy limit order (highest limit_price) and best open sell limit order (lowest limit_price) for the stock.
+If best_buy.limit_price &gt;= best_sell.limit_price, a match is possible. Execution price = sell order price (maker-taker model).
+Trade quantity = MIN(buy.remaining_qty, sell.remaining_qty). execute_trade() is called atomically.
+Both orders are updated: filled_quantity incremented, status set to &apos;partial&apos; or &apos;filled&apos;.
+Loop continues until no more matches exist for the stock.
+Market orders are matched first against any available opposite limit order regardless of price.
+5. REST API Specification
+The Node.js API is a thin HTTP layer. All endpoints call stored procedures or parameterized queries. No business logic in JS.
+5.1 Authentication Endpoints
+Method
+Endpoint
+Description
+Auth
+POST
+/api/auth/register
+Create user account, initialize wallet
+Public
+POST
+/api/auth/login
+Validate credentials, return JWT
+Public
+POST
+/api/auth/logout
+Invalidate session token
+Required
+GET
+/api/auth/me
+Get current user profile
+Required
+5.2 Market Data Endpoints
+Method
+Endpoint
+Description
+Auth
+GET
+/api/stocks
+List all active stocks with summary
+Public
+GET
+/api/stocks/:ticker
+Stock detail: price, info, stats
+Public
+GET
+/api/stocks/:ticker/orderbook
+Current bid/ask levels (v_order_book view)
+Public
+GET
+/api/stocks/:ticker/trades
+Recent trade history
+Public
+GET
+/api/stocks/:ticker/chart
+OHLCV price history data
+Public
+5.3 Order Endpoints
+Method
+Endpoint
+Description
+Auth
+POST
+/api/orders
+Place new order (calls place_order SP)
+Required
+GET
+/api/orders
+Get user&apos;s open/past orders
+Required
+DELETE
+/api/orders/:id
+Cancel order (calls cancel_order SP)
+Required
+GET
+/api/orders/:id
+Get single order detail with fill status
+Required
+5.4 Portfolio &amp; Wallet Endpoints
+Method
+Endpoint
+Description
+Auth
+GET
+/api/portfolio
+User holdings with P&amp;L (v_user_portfolio view)
+Required
+GET
+/api/wallet
+Wallet balances (cash + reserved)
+Required
+POST
+/api/wallet/deposit
+Add funds to wallet
+Required
+POST
+/api/wallet/withdraw
+Withdraw available cash
+Required
+5.5 Admin Endpoints
+Method
+Endpoint
+Description
+Auth
+POST
+/api/admin/stocks
+Add new stock listing
+Admin
+PATCH
+/api/admin/stocks/:id
+Update stock details or halt trading
+Admin
+GET
+/api/admin/users
+List all users with stats
+Admin
+GET
+/api/admin/audit-log
+View full audit trail
+Admin
+GET
+/api/admin/system
+System-wide stats and health
+Admin
+6. Frontend Features
+6.1 Pages &amp; Components
+Page / Component
+Description
+Key DB Data
+Login / Register
+Auth forms with validation and JWT storage
+users, sessions
+Market Dashboard
+Stock screener with search, sort, price changes
+v_stock_summary view
+Stock Detail Page
+Price chart (OHLCV), order book ladder, trade tape, place order panel
+price_history, v_order_book, trades
+Order Book Widget
+Live bid/ask depth table with price levels and quantities
+v_order_book view
+Order Placement Form
+Market / Limit / Stop-Loss order form with balance check preview
+orders SP
+My Orders
+Open orders with cancel button, order history with fill status
+v_open_orders view
+Portfolio Page
+Holdings table, P&amp;L per position, total portfolio value
+v_user_portfolio view
+Wallet Page
+Cash balance, reserved balance, deposit/withdraw forms, transaction history
+wallets, audit_log
+Admin Panel
+User list, stock management, audit log viewer, system stats
+All admin endpoints
+6.2 Order Book Visualization
+Stacked bid (green) and ask (red) rows sorted by price level
+Quantity, cumulative quantity, and depth percentage per level
+Polling every 2 seconds to simulate real-time updates
+Mid-price spread indicator between bids and asks
+7. Security &amp; Auth Design
+7.1 Authentication Flow
+User submits credentials → API validates against users table (bcrypt.compare)
+On success: generate signed JWT (user_id, role, expiry) → stored in sessions table
+All protected routes: middleware verifies JWT signature and checks sessions table
+Logout: deletes session record from sessions table → token invalidated server-side
+7.2 Authorization
+Role-based: &apos;user&apos; and &apos;admin&apos; roles enforced at API middleware layer
+Row-level security: users can only view/cancel their own orders (WHERE user_id = $1 in all queries)
+Admin endpoints protected by role check middleware
+7.3 Data Security
+Passwords stored as bcrypt hashes (cost factor 12) — never plaintext
+All SQL queries use parameterized statements — zero SQL injection risk
+Wallet mutations only via stored procedures — no direct table UPDATE from API
+Audit log is append-only (INSERT only trigger) — no UPDATE or DELETE permitted
+8. Advanced Database Concepts
+This section maps project features to the database concepts they demonstrate:
+DB Concept
+Where It&apos;s Used
+Implementation
+Normalization (3NF)
+All tables
+No transitive dependencies; portfolios derived from trades
+Stored Procedures
+Order placement, matching, settlement
+match_orders(), execute_trade(), place_order()
+Triggers
+Auto-matching, price updates, audit
+after_order_insert, after_trade_insert, audit_* triggers
+Views
+Order book, portfolio, summaries
+v_order_book, v_user_portfolio, v_stock_summary
+ACID Transactions
+Trade execution
+execute_trade() wrapped in BEGIN/COMMIT with ROLLBACK on error
+Indexes
+Performance optimization
+Composite indexes on orders, trades, price_history
+Constraints
+Data integrity
+CHECK, UNIQUE, FK, NOT NULL on all critical columns
+Window Functions
+P&amp;L calculation, ranking
+ROW_NUMBER(), LAG() for price change %, cumulative volumes
+CTEs
+Complex queries
+Recursive CTEs for order chain, WITH clauses in matching logic
+Concurrency Control
+Simultaneous orders
+SELECT FOR UPDATE in matching procedure to prevent race conditions
+Aggregate Functions
+Order book levels
+SUM(qty), COUNT(*) GROUP BY price in order book view
+9. Non-Functional Requirements
+Category
+Requirement
+Performance
+Order book page must load within 1 second; matching procedure must complete within 100ms for typical order books
+Data Integrity
+No trade may execute without sufficient balance or holdings — enforced by stored procedures with CHECK constraints
+Scalability
+Schema must support at least 100,000 orders and 1,000,000 price history records without index redesign
+Reliability
+All trade executions must be fully atomic — partial execution failure must roll back entire transaction
+Auditability
+Every balance change and order state change must produce an audit_log entry with timestamp and actor
+Security
+No raw SQL from user input — all queries parameterized; JWT validation on every protected route
+10. Development Milestones
+Phase
+Tasks
+Deliverable
+Phase 1 DB Design
+ER diagram, table DDL scripts, seed data, index creation, constraint validation
+SQL schema file + ER diagram
+Phase 2 Core DB Logic
+Stored procedures (place_order, match_orders, execute_trade), triggers, views
+Tested SQL procedures + trigger scripts
+Phase 3 API Layer
+Express setup, auth endpoints, order endpoints, portfolio endpoints, error handling
+Postman-tested REST API
+Phase 4 Frontend
+React app: auth, market dashboard, stock detail, order book, order placement, portfolio
+Working React app
+Phase 5 Admin &amp; Polish
+Admin panel, audit log viewer, query optimization, documentation
+Final project submission
+10.1 Submission Checklist
+ER Diagram (minimum 8 entities with correct cardinality)
+DDL SQL file: all CREATE TABLE, INDEX, CONSTRAINT statements
+Stored procedures: place_order, match_orders, execute_trade, cancel_order
+Triggers: order matching trigger, price update trigger, audit triggers
+Views: order book, portfolio, stock summary
+Sample queries: at least 10 non-trivial SELECT queries with JOINs, aggregations, and window functions
+Node.js API source code
+React frontend source code
+Seed data SQL file with sample users, stocks, orders, and trades
+README with setup instructions and schema explanation
