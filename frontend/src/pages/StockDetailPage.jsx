@@ -21,7 +21,7 @@ export default function StockDetailPage() {
   const stockQuery = useQuery({
     queryKey: ['stock-detail', ticker],
     queryFn: () => fetchStock(ticker),
-    refetchInterval: timeframe.refetch
+    refetchInterval: 5_000
   });
 
   const chartQuery = useQuery({
@@ -33,13 +33,13 @@ export default function StockDetailPage() {
   const orderBookQuery = useQuery({
     queryKey: ['stock-orderbook', ticker],
     queryFn: () => fetchOrderBook(ticker),
-    refetchInterval: 15_000
+    refetchInterval: 2_000
   });
 
   const tradesQuery = useQuery({
     queryKey: ['stock-trades', ticker],
     queryFn: () => fetchTrades(ticker),
-    refetchInterval: 15_000
+    refetchInterval: 2_000
   });
   const walletQuery = useQuery({ queryKey: ['wallet'], queryFn: fetchWallet });
   const portfolioQuery = useQuery({ queryKey: ['portfolio'], queryFn: fetchPortfolio });

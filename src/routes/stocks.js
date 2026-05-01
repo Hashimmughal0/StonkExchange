@@ -18,6 +18,7 @@ router.get('/', async (req, res) => {
   const { rows } = await pool.query(
     'SELECT stock_id, ticker, company_name, last_price, total_shares, is_active FROM stocks WHERE is_active = TRUE ORDER BY ticker'
   );
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({ data: rows });
 });
 
@@ -26,6 +27,7 @@ router.get('/:ticker', async (req, res) => {
   if (!stock) {
     return res.status(404).json({ message: 'Stock not found' });
   }
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({ data: stock });
 });
 
@@ -34,6 +36,7 @@ router.get('/id/:id', async (req, res) => {
   if (!stock) {
     return res.status(404).json({ message: 'Stock not found' });
   }
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json({ data: stock });
 });
 

@@ -51,6 +51,7 @@ export default function OrderPanel({
     mutationFn: placeOrder,
     onSuccess: async (data) => {
       await Promise.all([
+        queryClient.invalidateQueries(),
         queryClient.invalidateQueries({ queryKey: ['stock-detail', ticker] }),
         queryClient.invalidateQueries({ queryKey: ['stock-orderbook', ticker] }),
         queryClient.invalidateQueries({ queryKey: ['stock-trades', ticker] }),

@@ -26,7 +26,8 @@ export default function MarketsPage() {
   const stocksQuery = useQuery({
     queryKey: ['stocks'],
     queryFn: fetchStocks,
-    refetchInterval: 15_000
+    refetchInterval: 2_000,
+    refetchIntervalInBackground: true
   });
 
   const filteredStocks = useMemo(() => {
@@ -45,7 +46,7 @@ export default function MarketsPage() {
     filteredStocks.map((stock) => ({
       queryKey: ['market-summary', stock.ticker],
       queryFn: () => fetchPriceChart(stock.ticker),
-      refetchInterval: 30_000
+      refetchInterval: 5_000
     }))
   );
 

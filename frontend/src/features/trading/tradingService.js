@@ -1,12 +1,16 @@
 import api from '../../services/api';
 
 export async function fetchStocks() {
-  const { data } = await api.get('/stocks');
+  const { data } = await api.get('/stocks', {
+    params: { _ts: Date.now() }
+  });
   return data.data;
 }
 
 export async function fetchStock(ticker) {
-  const { data } = await api.get(`/stocks/${ticker}`);
+  const { data } = await api.get(`/stocks/${ticker}`, {
+    params: { _ts: Date.now() }
+  });
   return data.data;
 }
 

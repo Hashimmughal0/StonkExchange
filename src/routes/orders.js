@@ -66,7 +66,7 @@ router.post('/', authenticate, async (req, res) => {
 
 router.get('/', authenticate, async (req, res) => {
   const { rows } = await pool.query(
-    'SELECT * FROM v_open_orders WHERE user_id = $1 ORDER BY created_at DESC',
+    'SELECT * FROM v_all_orders WHERE user_id = $1 ORDER BY created_at DESC',
     [req.user.userId]
   );
   res.json({ data: rows });
@@ -75,7 +75,7 @@ router.get('/', authenticate, async (req, res) => {
 router.get('/:id', authenticate, async (req, res) => {
   const { id } = req.params;
   const { rows } = await pool.query(
-    'SELECT * FROM v_open_orders WHERE order_id = $1 AND user_id = $2',
+    'SELECT * FROM v_all_orders WHERE order_id = $1 AND user_id = $2',
     [id, req.user.userId]
   );
 

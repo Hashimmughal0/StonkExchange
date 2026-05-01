@@ -9,7 +9,7 @@ export default function OrdersPage() {
   const ordersQuery = useQuery({
     queryKey: ['orders'],
     queryFn: fetchOrders,
-    refetchInterval: 15_000
+    refetchInterval: 2_000
   });
 
   const rows = useMemo(() => {

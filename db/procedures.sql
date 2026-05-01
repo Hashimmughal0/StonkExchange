@@ -14,6 +14,153 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION gaussian_noise(p_stddev NUMERIC DEFAULT 1)
+RETURNS NUMERIC AS $$
+DECLARE
+  u1 NUMERIC;
+  u2 NUMERIC;
+  z0 NUMERIC;
+BEGIN
+  u1 := GREATEST(random(), 0.0000001);
+  u2 := random();
+  z0 := SQRT(-2 * LN(u1)) * COS(2 * PI() * u2);
+  RETURN z0 * COALESCE(p_stddev, 1);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION calc_recent_moving_average(p_stock_id INT, p_window INT DEFAULT 20)
+RETURNS NUMERIC AS $$
+DECLARE
+  v_avg NUMERIC;
+BEGIN
+  SELECT AVG(close_price)
+  INTO v_avg
+  FROM (
+    SELECT ph.close_price
+    FROM price_history ph
+    WHERE ph.stock_id = p_stock_id
+    ORDER BY ph.recorded_at DESC
+    LIMIT GREATEST(p_window, 1)
+  ) x;
+
+  RETURN COALESCE(v_avg, (SELECT last_price FROM stocks WHERE stock_id = p_stock_id), 1);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION calc_recent_volatility(p_stock_id INT, p_window INT DEFAULT 20)
+RETURNS NUMERIC AS $$
+DECLARE
+  v_vol NUMERIC;
+BEGIN
+  SELECT COALESCE(STDDEV_SAMP(close_price), 0)
+  INTO v_vol
+  FROM (
+    SELECT ph.close_price
+    FROM price_history ph
+    WHERE ph.stock_id = p_stock_id
+    ORDER BY ph.recorded_at DESC
+    LIMIT GREATEST(p_window, 2)
+  ) x;
+
+  RETURN COALESCE(v_vol, 0);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION calc_order_book_imbalance(p_stock_id INT)
+RETURNS NUMERIC AS $$
+DECLARE
+  v_bid NUMERIC;
+  v_ask NUMERIC;
+BEGIN
+  SELECT
+    COALESCE(SUM(CASE WHEN side = 'buy' THEN quantity - filled_quantity ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN side = 'sell' THEN quantity - filled_quantity ELSE 0 END), 0)
+  INTO v_bid, v_ask
+  FROM orders
+  WHERE stock_id = p_stock_id
+    AND status IN ('open', 'partial');
+
+  RETURN v_bid - v_ask;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION calc_fair_price(p_stock_id INT)
+RETURNS NUMERIC AS $$
+DECLARE
+  v_last NUMERIC;
+  v_ma NUMERIC;
+  v_recent_trade NUMERIC;
+  v_weighted NUMERIC;
+BEGIN
+  SELECT last_price INTO v_last
+  FROM stocks
+  WHERE stock_id = p_stock_id;
+
+  SELECT AVG(price)
+  INTO v_recent_trade
+  FROM (
+    SELECT t.price
+    FROM trades t
+    WHERE t.stock_id = p_stock_id
+    ORDER BY t.executed_at DESC
+    LIMIT 10
+  ) x;
+
+  v_ma := calc_recent_moving_average(p_stock_id, 20);
+
+  v_weighted := (COALESCE(v_last, v_ma, 1) * 0.5)
+    + (COALESCE(v_recent_trade, v_ma, COALESCE(v_last, 1)) * 0.3)
+    + (COALESCE(v_ma, COALESCE(v_last, 1)) * 0.2);
+
+  RETURN GREATEST(v_weighted, 0.01);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION bot_inventory_bias(p_user_id INT, p_stock_id INT)
+RETURNS NUMERIC AS $$
+DECLARE
+  v_qty INT;
+  v_avg NUMERIC;
+  v_bias NUMERIC;
+BEGIN
+  SELECT quantity, average_price
+  INTO v_qty, v_avg
+  FROM portfolios
+  WHERE user_id = p_user_id
+    AND stock_id = p_stock_id;
+
+  IF NOT FOUND THEN
+    RETURN 0;
+  END IF;
+
+  v_bias := LEAST(0.35, GREATEST(-0.35, (v_qty - 1000) / 10000.0));
+  RETURN v_bias;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION ensure_bot_inventory(
+  p_user_id INT,
+  p_stock_id INT,
+  p_target_quantity INT DEFAULT 250000,
+  p_price NUMERIC DEFAULT NULL
+)
+RETURNS VOID AS $$
+BEGIN
+  INSERT INTO portfolios (user_id, stock_id, quantity, locked_quantity, average_price)
+  VALUES (
+    p_user_id,
+    p_stock_id,
+    GREATEST(p_target_quantity, 1),
+    0,
+    GREATEST(COALESCE(p_price, 1), 0.01)
+  )
+  ON CONFLICT (user_id, stock_id) DO UPDATE
+  SET quantity = GREATEST(portfolios.quantity, EXCLUDED.quantity),
+      locked_quantity = 0,
+      average_price = COALESCE(portfolios.average_price, EXCLUDED.average_price);
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION place_order(
   p_user INT,
   p_stock INT,
@@ -375,9 +522,13 @@ CREATE OR REPLACE FUNCTION simulate_market_tick(p_moves INT DEFAULT 5)
 RETURNS INT AS $$
 DECLARE
   v_stock RECORD;
+  v_fair NUMERIC;
   v_factor NUMERIC;
   v_old_price NUMERIC;
   v_new_price NUMERIC;
+  v_move_cap NUMERIC;
+  v_vol NUMERIC;
+  v_imbalance NUMERIC;
   v_moves INT := 0;
 BEGIN
   FOR v_stock IN
@@ -388,9 +539,23 @@ BEGIN
     LIMIT GREATEST(p_moves, 1)
     FOR UPDATE SKIP LOCKED
   LOOP
-    v_old_price := COALESCE(v_stock.last_price, 1);
-    v_factor := 1 + ((random() - 0.5) / 20);
-    v_new_price := GREATEST(0.01, ROUND((v_old_price * v_factor)::numeric, 4));
+    v_old_price := GREATEST(COALESCE(v_stock.last_price, 1), 0.01);
+    v_fair := calc_fair_price(v_stock.stock_id);
+    v_vol := calc_recent_volatility(v_stock.stock_id, 20);
+    v_imbalance := calc_order_book_imbalance(v_stock.stock_id);
+    v_move_cap := GREATEST(v_old_price * 0.05, 0.01);
+
+    v_factor := LEAST(
+      v_move_cap,
+      GREATEST(
+        -v_move_cap,
+        ((v_fair - v_old_price) * 0.15)
+        + (COALESCE(v_imbalance, 0) / GREATEST(v_old_price * 20000, 1))
+        + gaussian_noise(GREATEST(v_old_price * (0.002 + LEAST(v_vol / GREATEST(v_old_price, 1), 0.02)), 0.01))
+      )
+    );
+
+    v_new_price := GREATEST(0.01, ROUND((v_old_price + v_factor)::numeric, 4));
 
     UPDATE stocks
     SET last_price = v_new_price
@@ -434,247 +599,261 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION simulate_market_activity(p_orders INT DEFAULT 3)
+CREATE OR REPLACE FUNCTION place_bot_ladder_orders(
+  p_user_id INT,
+  p_stock_id INT,
+  p_levels INT,
+  p_base_price NUMERIC,
+  p_spread NUMERIC,
+  p_side_bias NUMERIC,
+  p_aggressiveness NUMERIC
+)
 RETURNS INT AS $$
 DECLARE
-  v_buyer_bot_id INT;
-  v_seller_bot_id INT;
-  v_order RECORD;
   v_stock RECORD;
-  v_price NUMERIC;
-  v_spread NUMERIC;
-  v_bid_qty NUMERIC;
-  v_ask_qty NUMERIC;
-  v_imbalance NUMERIC;
-  v_activity NUMERIC;
-  v_aggression NUMERIC;
-  v_buy_limit NUMERIC;
-  v_sell_limit NUMERIC;
-  v_cross_sell_limit NUMERIC;
-  v_cross_buy_limit NUMERIC;
+  v_existing RECORD;
+  v_level INT;
   v_quantity INT;
-  v_levels INT;
-  i INT;
+  v_bid_price NUMERIC;
+  v_ask_price NUMERIC;
+  v_target_side order_side;
+  v_order_type order_type := 'limit';
   v_created INT := 0;
-  BEGIN
-    SELECT user_id INTO v_buyer_bot_id
-    FROM users
-    WHERE username = 'liquidity_bot';
+BEGIN
+  SELECT * INTO v_stock FROM stocks WHERE stock_id = p_stock_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN 0;
+  END IF;
 
-  SELECT user_id INTO v_seller_bot_id
-  FROM users
-  WHERE username = 'liquidity_seller';
+  FOR v_level IN 1..GREATEST(p_levels, 1) LOOP
+    v_quantity := GREATEST(
+      ROUND(100 + (ABS(p_side_bias) * 80) + (random() * 120))::INT,
+      10
+    );
 
-    IF v_buyer_bot_id IS NULL OR v_seller_bot_id IS NULL THEN
-      RAISE EXCEPTION 'Liquidity bot users are missing';
-    END IF;
+    v_bid_price := GREATEST(ROUND((p_base_price - (p_spread * v_level))::numeric, 4), 0.01);
+    v_ask_price := GREATEST(ROUND((p_base_price + (p_spread * v_level))::numeric, 4), 0.01);
 
-    -- Synthetic market makers: keep them funded so they can keep providing liquidity.
-    UPDATE wallets
-    SET cash_balance = GREATEST(cash_balance, 5000000),
-        reserved_balance = 0,
-        updated_at = NOW()
-    WHERE user_id = v_buyer_bot_id;
-
-    UPDATE wallets
-    SET cash_balance = GREATEST(cash_balance, 2500000),
-        reserved_balance = 0,
-        updated_at = NOW()
-    WHERE user_id = v_seller_bot_id;
-
-    FOR v_stock IN
-      SELECT order_id, user_id
-      FROM orders
-    WHERE user_id IN (v_buyer_bot_id, v_seller_bot_id)
-      AND status IN ('open','partial')
-    ORDER BY created_at ASC
-  LOOP
-    PERFORM cancel_order(v_stock.order_id, v_stock.user_id);
-  END LOOP;
-
-  FOR v_order IN
-    SELECT
-      o.order_id,
-      o.user_id,
-      o.stock_id,
-      s.ticker,
-      o.side,
-      o.order_type,
-      o.quantity - o.filled_quantity AS remaining_quantity,
-      COALESCE(o.limit_price, s.last_price, (
-        SELECT close_price
-        FROM price_history ph
-        WHERE ph.stock_id = o.stock_id
-        ORDER BY ph.recorded_at DESC
-        LIMIT 1
-      )) AS ref_price
-    FROM orders o
-    JOIN stocks s ON s.stock_id = o.stock_id
-    WHERE o.status IN ('open','partial')
-      AND o.user_id NOT IN (v_buyer_bot_id, v_seller_bot_id)
-    ORDER BY o.created_at ASC
-    LIMIT GREATEST(p_orders * 4, 4)
-  LOOP
-    v_quantity := GREATEST(v_order.remaining_quantity, 1);
-    v_price := COALESCE(v_order.ref_price, 1);
-    v_spread := GREATEST(v_price * 0.0015, 0.01);
-    v_cross_sell_limit := GREATEST(v_price - (v_spread * 0.25), 0.01);
-    v_cross_buy_limit := GREATEST(v_price + (v_spread * 0.25), 0.01);
-
-    IF v_order.side = 'buy' THEN
-      v_sell_limit := v_cross_sell_limit;
-
-      PERFORM place_order(
-        v_seller_bot_id,
-        v_order.stock_id,
-        'limit'::order_type,
-        'sell'::order_side,
-        v_quantity,
-        v_sell_limit,
-        NULL
-      );
+    IF p_side_bias >= 0 THEN
+      v_quantity := GREATEST(ROUND(v_quantity * (1 + p_side_bias))::INT, 10);
     ELSE
-      v_buy_limit := v_cross_buy_limit;
-
-      PERFORM place_order(
-        v_buyer_bot_id,
-        v_order.stock_id,
-        'limit'::order_type,
-        'buy'::order_side,
-        v_quantity,
-        v_buy_limit,
-        NULL
-      );
+      v_quantity := GREATEST(ROUND(v_quantity * (1 - p_side_bias))::INT, 10);
     END IF;
 
-    v_created := v_created + 1;
-  END LOOP;
+    SELECT order_id, side, limit_price, quantity, filled_quantity
+    INTO v_existing
+    FROM orders
+    WHERE user_id = p_user_id
+      AND stock_id = p_stock_id
+      AND status IN ('open', 'partial')
+      AND order_type = 'limit'
+      AND side = 'buy'
+      AND limit_price = v_bid_price
+    LIMIT 1;
 
-  FOR v_stock IN
-        SELECT s.stock_id,
-               s.ticker,
-               s.last_price,
-               COALESCE(book.bid_qty, 0) AS bid_qty,
-             COALESCE(book.ask_qty, 0) AS ask_qty,
-             COALESCE(trd.activity_24h, 0) AS activity_24h
-      FROM stocks s
-      LEFT JOIN LATERAL (
-        SELECT
-          SUM(CASE WHEN side = 'buy' THEN quantity - filled_quantity ELSE 0 END) AS bid_qty,
-          SUM(CASE WHEN side = 'sell' THEN quantity - filled_quantity ELSE 0 END) AS ask_qty
-      FROM orders o
-      WHERE o.stock_id = s.stock_id
-        AND o.status IN ('open','partial')
-    ) book ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS activity_24h
-      FROM trades t
-      WHERE t.stock_id = s.stock_id
-        AND t.executed_at >= NOW() - INTERVAL '24 hours'
-    ) trd ON TRUE
-    WHERE s.is_active = TRUE
-    ORDER BY random()
-    LIMIT GREATEST(p_orders, 1)
-  LOOP
-    v_price := COALESCE(v_stock.last_price, 1);
-    v_bid_qty := COALESCE(v_stock.bid_qty, 0);
-    v_ask_qty := COALESCE(v_stock.ask_qty, 0);
-    v_activity := COALESCE(v_stock.activity_24h, 0);
-    v_imbalance := v_bid_qty - v_ask_qty;
-    v_aggression := LEAST(0.5, GREATEST(0.1, 0.2 + (v_activity * 0.01)));
-
-    v_spread := GREATEST(v_price * CASE
-        WHEN v_activity >= 20 THEN 0.0005
-        WHEN v_activity >= 5 THEN 0.001
-        ELSE 0.0025
-      END, 0.01);
-
-    IF v_imbalance > 0 THEN
-      v_spread := v_spread * 0.85;
-    ELSIF v_imbalance < 0 THEN
-      v_spread := v_spread * 1.15;
-    END IF;
-
-      v_levels := CASE
-        WHEN v_activity >= 20 THEN 5
-        WHEN v_activity >= 5 THEN 4
-        ELSE 3
-      END;
-
-      -- Keep the synthetic seller stocked so the simulator can keep generating liquidity.
-      UPDATE portfolios
-      SET quantity = GREATEST(quantity, 250000),
-          average_price = COALESCE(average_price, v_price)
-      WHERE user_id = v_seller_bot_id
-        AND stock_id = v_stock.stock_id;
-
-      IF NOT FOUND THEN
-        INSERT INTO portfolios (user_id, stock_id, quantity, locked_quantity, average_price)
-        VALUES (v_seller_bot_id, v_stock.stock_id, 250000, 0, v_price)
-        ON CONFLICT (user_id, stock_id) DO UPDATE
-        SET quantity = GREATEST(portfolios.quantity, EXCLUDED.quantity),
-            average_price = COALESCE(portfolios.average_price, EXCLUDED.average_price);
-      END IF;
-
-      FOR i IN 1..v_levels LOOP
-        v_quantity := GREATEST(((random() * 400)::INT + 50), 50);
-      v_buy_limit := ROUND((v_price - (v_spread * i))::numeric, 4);
-      v_sell_limit := ROUND((v_price + (v_spread * i))::numeric, 4);
-
-      IF v_imbalance > 0 THEN
-        v_sell_limit := ROUND((v_price + (v_spread * (i - 0.35)))::numeric, 4);
-      ELSIF v_imbalance < 0 THEN
-        v_buy_limit := ROUND((v_price - (v_spread * (i - 0.35)))::numeric, 4);
-      END IF;
-
+    IF FOUND THEN
+      UPDATE orders
+      SET quantity = GREATEST(quantity, v_quantity),
+          updated_at = NOW()
+      WHERE order_id = v_existing.order_id;
+    ELSE
       PERFORM place_order(
-        v_buyer_bot_id,
-        v_stock.stock_id,
-        'limit'::order_type,
+        p_user_id,
+        p_stock_id,
+        v_order_type,
         'buy'::order_side,
         v_quantity,
-        v_buy_limit,
+        v_bid_price,
         NULL
       );
+      v_created := v_created + 1;
+    END IF;
+
+    SELECT order_id, side, limit_price, quantity, filled_quantity
+    INTO v_existing
+    FROM orders
+    WHERE user_id = p_user_id
+      AND stock_id = p_stock_id
+      AND status IN ('open', 'partial')
+      AND order_type = 'limit'
+      AND side = 'sell'
+      AND limit_price = v_ask_price
+    LIMIT 1;
+
+    IF FOUND THEN
+      UPDATE orders
+      SET quantity = GREATEST(quantity, v_quantity),
+          updated_at = NOW()
+      WHERE order_id = v_existing.order_id;
+    ELSE
       PERFORM place_order(
-        v_seller_bot_id,
-        v_stock.stock_id,
-        'limit'::order_type,
+        p_user_id,
+        p_stock_id,
+        v_order_type,
         'sell'::order_side,
         v_quantity,
-        v_sell_limit,
+        v_ask_price,
         NULL
       );
-
-      v_created := v_created + 2;
-    END LOOP;
-
-    -- Create one crossing pair so the bots execute against each other and move price naturally.
-    v_quantity := GREATEST(((random() * 300)::INT + 100), 100);
-    v_buy_limit := ROUND((v_price + (v_spread * v_aggression))::numeric, 4);
-    v_sell_limit := ROUND((v_price - (v_spread * v_aggression))::numeric, 4);
-
-    PERFORM place_order(
-      v_buyer_bot_id,
-      v_stock.stock_id,
-      'limit'::order_type,
-      'buy'::order_side,
-      v_quantity,
-      v_buy_limit,
-      NULL
-    );
-    PERFORM place_order(
-      v_seller_bot_id,
-      v_stock.stock_id,
-      'limit'::order_type,
-      'sell'::order_side,
-      v_quantity,
-      v_sell_limit,
-      NULL
-    );
-    v_created := v_created + 2;
+      v_created := v_created + 1;
+    END IF;
   END LOOP;
 
   RETURN v_created;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION simulate_intelligent_tick(p_stock_id INT, p_moves INT DEFAULT 3)
+RETURNS INT AS $$
+DECLARE
+  v_stock RECORD;
+  v_fair NUMERIC;
+  v_vol NUMERIC;
+  v_spread NUMERIC;
+  v_imbalance NUMERIC;
+  v_price NUMERIC;
+  v_market_maker_id INT;
+  v_noise_trader_id INT;
+  v_momentum_trader_id INT;
+  v_arbitrage_bot_id INT;
+  v_depth_levels INT;
+  v_created INT := 0;
+  v_buy_bias NUMERIC;
+  v_sell_bias NUMERIC;
+  v_signal NUMERIC;
+BEGIN
+  SELECT * INTO v_stock
+  FROM stocks
+  WHERE stock_id = p_stock_id
+    AND is_active = TRUE
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN 0;
+  END IF;
+
+  SELECT user_id INTO v_market_maker_id FROM users WHERE username = 'liquidity_bot';
+  SELECT user_id INTO v_noise_trader_id FROM users WHERE username = 'noise_trader';
+  SELECT user_id INTO v_momentum_trader_id FROM users WHERE username = 'momentum_trader';
+  SELECT user_id INTO v_arbitrage_bot_id FROM users WHERE username = 'arbitrage_bot';
+
+  v_price := GREATEST(COALESCE(v_stock.last_price, 1), 0.01);
+  v_fair := calc_fair_price(p_stock_id);
+  v_vol := GREATEST(calc_recent_volatility(p_stock_id, 20), v_price * 0.002);
+  v_imbalance := calc_order_book_imbalance(p_stock_id);
+  v_spread := GREATEST(v_price * LEAST(0.01 + (v_vol / GREATEST(v_price, 1)) * 2, 0.05), 0.01);
+  v_depth_levels := LEAST(GREATEST(p_moves, 3), 5);
+
+  IF v_price < 0.05 OR v_price < v_fair * 0.25 THEN
+    v_buy_bias := 0.35;
+  ELSE
+    v_buy_bias := 0;
+  END IF;
+
+  v_sell_bias := bot_inventory_bias(v_market_maker_id, p_stock_id);
+  IF v_imbalance < 0 THEN
+    v_buy_bias := v_buy_bias + 0.15;
+  ELSIF v_imbalance > 0 THEN
+    v_sell_bias := v_sell_bias + 0.15;
+  END IF;
+
+  IF v_market_maker_id IS NOT NULL THEN
+    PERFORM ensure_bot_inventory(v_market_maker_id, p_stock_id, 250000, v_fair);
+    v_created := v_created + place_bot_ladder_orders(
+      v_market_maker_id,
+      p_stock_id,
+      v_depth_levels,
+      GREATEST((v_price * 0.45) + (v_fair * 0.55), 0.01),
+      v_spread,
+      v_sell_bias,
+      0.5
+    );
+  END IF;
+
+  IF v_noise_trader_id IS NOT NULL THEN
+    PERFORM ensure_bot_inventory(v_noise_trader_id, p_stock_id, 50000, v_price);
+    v_created := v_created + place_bot_ladder_orders(
+      v_noise_trader_id,
+      p_stock_id,
+      1,
+      v_price + gaussian_noise(v_spread * 0.15),
+      GREATEST(v_spread * 0.5, 0.01),
+      0,
+      0.2
+    );
+  END IF;
+
+  IF v_momentum_trader_id IS NOT NULL THEN
+    PERFORM ensure_bot_inventory(v_momentum_trader_id, p_stock_id, 50000, v_price);
+    v_signal := GREATEST(LEAST((v_price - v_fair) / GREATEST(v_fair, 1), 0.03), -0.03);
+    v_created := v_created + place_bot_ladder_orders(
+      v_momentum_trader_id,
+      p_stock_id,
+      1,
+      v_price + (v_signal * v_price),
+      GREATEST(v_spread * 0.8, 0.01),
+      CASE WHEN v_signal >= 0 THEN 0.15 ELSE -0.15 END,
+      0.35
+    );
+  END IF;
+
+  IF v_arbitrage_bot_id IS NOT NULL AND ABS(v_price - v_fair) / GREATEST(v_fair, 1) > 0.01 THEN
+    PERFORM ensure_bot_inventory(v_arbitrage_bot_id, p_stock_id, 75000, v_fair);
+    v_created := v_created + place_bot_ladder_orders(
+      v_arbitrage_bot_id,
+      p_stock_id,
+      1,
+      v_fair,
+      GREATEST(v_spread * 0.6, 0.01),
+      CASE WHEN v_price < v_fair THEN 0.2 ELSE -0.2 END,
+      0.45
+    );
+  END IF;
+
+  IF v_price < v_fair * 0.8 THEN
+    IF v_market_maker_id IS NOT NULL THEN
+      PERFORM ensure_bot_inventory(v_market_maker_id, p_stock_id, 300000, v_fair);
+    END IF;
+    v_created := v_created + place_bot_ladder_orders(
+      v_market_maker_id,
+      p_stock_id,
+      2,
+      v_fair,
+      GREATEST(v_spread * 1.2, 0.01),
+      0.4,
+      0.6
+    );
+  END IF;
+
+  PERFORM match_orders(p_stock_id);
+  RETURN v_created;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION simulate_liquidity_engine(p_ticks INT DEFAULT 5)
+RETURNS INT AS $$
+DECLARE
+  v_stock RECORD;
+  v_total INT := 0;
+BEGIN
+  FOR v_stock IN
+    SELECT stock_id
+    FROM stocks
+    WHERE is_active = TRUE
+    ORDER BY stock_id
+    LIMIT GREATEST(p_ticks, 1)
+  LOOP
+    v_total := v_total + simulate_intelligent_tick(v_stock.stock_id, 5);
+    v_total := v_total + simulate_market_tick(1);
+  END LOOP;
+
+  RETURN v_total;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION simulate_market_activity(p_orders INT DEFAULT 3)
+RETURNS INT AS $$
+BEGIN
+  RETURN simulate_liquidity_engine(p_orders);
 END;
 $$ LANGUAGE plpgsql;

@@ -13,19 +13,21 @@ export default function PortfolioPage() {
   const stocksQuery = useQuery({ queryKey: ['stocks'], queryFn: fetchStocks });
 
   const holdings = useMemo(() => {
-    return (portfolioQuery.data || []).map((holding) => {
-      const stock = (stocksQuery.data || []).find((item) => item.ticker === holding.ticker);
-      const currentPrice = Number(stock?.last_price || 0);
-      const currentValue = Number(holding.quantity || 0) * currentPrice;
-      const costBasis = Number(holding.quantity || 0) * Number(holding.average_price || 0);
-      const profitLoss = currentValue - costBasis;
-      return {
-        ...holding,
-        currentPrice,
-        currentValue,
-        profitLoss
-      };
-    });
+    return (portfolioQuery.data || [])
+      .filter((holding) => Number(holding.quantity || 0) > 0)
+      .map((holding) => {
+        const stock = (stocksQuery.data || []).find((item) => item.ticker === holding.ticker);
+        const currentPrice = Number(stock?.last_price || 0);
+        const currentValue = Number(holding.quantity || 0) * currentPrice;
+        const costBasis = Number(holding.quantity || 0) * Number(holding.average_price || 0);
+        const profitLoss = currentValue - costBasis;
+        return {
+          ...holding,
+          currentPrice,
+          currentValue,
+          profitLoss
+        };
+      });
   }, [portfolioQuery.data, stocksQuery.data]);
 
   const availableBalance = Number(walletQuery.data?.cash_balance || 0);

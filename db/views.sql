@@ -2,6 +2,7 @@
 
 DROP VIEW IF EXISTS v_stock_summary;
 DROP VIEW IF EXISTS v_trade_history;
+DROP VIEW IF EXISTS v_all_orders;
 DROP VIEW IF EXISTS v_open_orders;
 DROP VIEW IF EXISTS v_user_portfolio;
 DROP VIEW IF EXISTS v_order_book;
@@ -30,6 +31,27 @@ SELECT p.user_id,
        (p.quantity * s.last_price) - (p.quantity * p.average_price) AS unrealized_pl
 FROM portfolios p
 JOIN stocks s ON s.stock_id = p.stock_id;
+
+CREATE VIEW v_all_orders AS
+SELECT o.order_id,
+       o.user_id,
+       o.stock_id,
+       s.ticker,
+       o.side,
+       o.order_type,
+       o.status,
+       o.quantity,
+       o.filled_quantity,
+       o.limit_price,
+       CASE
+         WHEN o.order_type = 'market' THEN s.last_price
+         ELSE o.limit_price
+       END AS effective_price,
+       (o.quantity - o.filled_quantity) AS remaining_quantity,
+       o.created_at,
+       o.updated_at
+FROM orders o
+JOIN stocks s ON s.stock_id = o.stock_id;
 
 CREATE VIEW v_open_orders AS
 SELECT o.order_id,

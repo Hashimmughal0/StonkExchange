@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from 'react-query';
+import { useMutation, useQuery, useQueryClient } from 'react-query';
 import { fetchOrderBook, fetchStock, fetchTrades, placeOrder } from '../features/trading/tradingService';
 
 export default function TradePage() {
+  const queryClient = useQueryClient();
   const [ticker, setTicker] = useState('AAPL');
   const [form, setForm] = useState({
     orderType: 'limit',
@@ -26,7 +27,19 @@ export default function TradePage() {
   });
 
   const orderMutation = useMutation({
-    mutationFn: placeOrder
+    mutationFn: placeOrder,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries(),
+        queryClient.invalidateQueries({ queryKey: ['stocks'] }),
+        queryClient.invalidateQueries({ queryKey: ['wallet'] }),
+        queryClient.invalidateQueries({ queryKey: ['portfolio'] }),
+        queryClient.invalidateQueries({ queryKey: ['orders'] }),
+        queryClient.invalidateQueries({ queryKey: ['stock', ticker] }),
+        queryClient.invalidateQueries({ queryKey: ['orderbook', ticker] }),
+        queryClient.invalidateQueries({ queryKey: ['trades', ticker] })
+      ]);
+    }
   });
 
   const estimatedPrice = Number(
