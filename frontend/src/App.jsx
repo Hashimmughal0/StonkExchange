@@ -8,6 +8,7 @@ import OrdersPage from './pages/OrdersPage';
 import AdminSimulatorPage from './pages/AdminSimulatorPage';
 import StockDetailPage from './pages/StockDetailPage';
 import PortfolioPage from './pages/PortfolioPage';
+import HomePage from './pages/HomePage';
 import { useAuthStore } from './store/authStore';
 
 export default function App() {
@@ -16,24 +17,23 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={token ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/register" element={token ? <Navigate to="/" replace /> : <RegisterPage />} />
+      <Route path="/" element={<HomePage />} />
+      <Route path="/login" element={token ? <Navigate to="/markets" replace /> : <LoginPage />} />
+      <Route path="/register" element={token ? <Navigate to="/markets" replace /> : <RegisterPage />} />
       <Route
-        path="/"
         element={
           <ProtectedRoute>
             <AppShell />
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="/markets" replace />} />
-        <Route path="markets" element={<MarketsPage />} />
-        <Route path="markets/:ticker" element={<StockDetailPage />} />
-        <Route path="orders" element={<OrdersPage />} />
-        <Route path="portfolio" element={<PortfolioPage />} />
-        {user?.role === 'admin' ? <Route path="admin/simulator" element={<AdminSimulatorPage />} /> : null}
+        <Route path="/markets" element={<MarketsPage />} />
+        <Route path="/markets/:ticker" element={<StockDetailPage />} />
+        <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/portfolio" element={<PortfolioPage />} />
+        {user?.role === 'admin' ? <Route path="/admin/simulator" element={<AdminSimulatorPage />} /> : null}
       </Route>
-      <Route path="*" element={<Navigate to={token ? '/markets' : '/login'} replace />} />
+      <Route path="*" element={<Navigate to={token ? '/markets' : '/'} replace />} />
     </Routes>
   );
 }

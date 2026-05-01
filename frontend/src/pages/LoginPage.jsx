@@ -37,7 +37,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="glass-panel w-full max-w-md p-8 transition duration-300 ease-out hover:-translate-y-0.5">
         <div className="mb-8">
-          <p className="text-xs uppercase tracking-[0.3em] text-accent">StonkExchange</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-accent2">StonkExchange</p>
           <h1 className="mt-2 text-3xl font-bold text-white">Sign in</h1>
           <p className="mt-2 text-sm text-slate-400">Access the trading dashboard.</p>
         </div>
@@ -82,7 +82,7 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className="w-full rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-accent2 disabled:opacity-60"
+            className="w-full rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-accent2 disabled:opacity-60"
             disabled={mutation.isLoading}
           >
             {mutation.isLoading ? 'Signing in...' : 'Sign in'}

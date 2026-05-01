@@ -156,7 +156,7 @@ export default function OrderPanel({
 
         <button
           type="submit"
-          className="w-full rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-accent2 disabled:opacity-60"
+          className="w-full rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-accent2 disabled:opacity-60"
           disabled={mutation.isLoading || Boolean(validationError)}
         >
           {mutation.isLoading ? 'Submitting...' : 'Submit Order'}

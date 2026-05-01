@@ -21,12 +21,12 @@ export default function AppShell() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(240,185,11,0.08),_transparent_30%),linear-gradient(180deg,_#07111f_0%,_#050b14_100%)]">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(0,214,255,0.08),_transparent_30%),linear-gradient(180deg,_#050505_0%,_#0A0A0C_100%)]">
       <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="border-b border-border/80 bg-panel/70 px-5 py-6 backdrop-blur lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
           <div className="mb-8">
             <div className="text-2xl font-black tracking-tight text-white">StonkExchange</div>
-            <p className="mt-1 text-xs uppercase tracking-[0.3em] text-accent">Spot Market</p>
+            <p className="mt-1 text-xs uppercase tracking-[0.3em] text-accent2">Spot Market</p>
           </div>
 
           <nav className="space-y-2">
