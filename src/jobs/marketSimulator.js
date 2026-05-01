@@ -3,18 +3,12 @@ const pool = require('../config/db');
 let timer = null;
 let running = false;
 
-async function runLiquidityCycle() {
-  await pool.query('SELECT simulate_liquidity_engine($1)', [
-    Number(process.env.MARKET_SIMULATOR_CYCLES || 1)
-  ]);
-}
-
 function startMarketSimulator() {
   if (timer || process.env.MARKET_SIMULATOR !== 'true') {
     return;
   }
 
-  const intervalMs = Number(process.env.MARKET_SIMULATOR_INTERVAL_MS || 5000);
+  const intervalMs = Number(process.env.MARKET_SIMULATOR_INTERVAL_MS || 50);
 
   timer = setInterval(async () => {
     if (running) {
@@ -23,7 +17,8 @@ function startMarketSimulator() {
 
     running = true;
     try {
-      await runLiquidityCycle();
+      await pool.query('SELECT simulate_market_tick($1)', [Number(process.env.MARKET_SIMULATOR_MOVES || 5)]);
+      await pool.query('SELECT simulate_market_activity($1)', [Number(process.env.MARKET_SIMULATOR_ORDERS || 3)]);
     } catch (err) {
       console.error('Market simulator tick failed:', err.message);
     } finally {
