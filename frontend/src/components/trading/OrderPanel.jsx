@@ -17,7 +17,7 @@ export default function OrderPanel({
   const [form, setForm] = useState({
     side: 'buy',
     orderType: 'market',
-    quantity: 1,
+    quantity: 0,
     limitPrice: '',
     stopPrice: ''
   });
@@ -27,6 +27,28 @@ export default function OrderPanel({
   const fees = estimatedCost * 0.001;
   const totalCost = estimatedCost + fees;
   const sellValue = Number(form.quantity || 0) * estimatedPrice;
+
+  const currentPercent = useMemo(() => {
+    if (form.side === 'buy') {
+       if (!availableBalance || !estimatedPrice) return 0;
+       const maxQty = Math.floor(availableBalance / estimatedPrice);
+       if (maxQty === 0) return 0;
+       return Math.min(100, Math.max(0, Math.round((form.quantity / maxQty) * 100)));
+    } else {
+       if (!ownedQuantity) return 0;
+       return Math.min(100, Math.max(0, Math.round((form.quantity / ownedQuantity) * 100)));
+    }
+  }, [form.side, form.quantity, availableBalance, estimatedPrice, ownedQuantity]);
+
+  const handlePercentClick = (percent) => {
+    if (form.side === 'buy') {
+      const maxQty = estimatedPrice > 0 ? Math.floor((availableBalance / estimatedPrice) * (percent / 100)) : 0;
+      setForm(prev => ({ ...prev, quantity: maxQty }));
+    } else {
+      const maxQty = Math.floor(ownedQuantity * (percent / 100));
+      setForm(prev => ({ ...prev, quantity: maxQty }));
+    }
+  };
 
   const validationError = useMemo(() => {
     if (!ticker) {
@@ -59,17 +81,25 @@ export default function OrderPanel({
         queryClient.invalidateQueries({ queryKey: ['portfolio'] }),
         queryClient.invalidateQueries({ queryKey: ['stocks'] })
       ]);
+      setForm(prev => ({ ...prev, quantity: 0 }));
       if (onSuccess) onSuccess(data);
     }
   });
 
   return (
     <div className="glass-panel p-6">
-      <h3 className="text-lg font-semibold text-white">Trade Panel</h3>
-      <p className="mt-1 text-sm text-slate-400">Place orders for {ticker}.</p>
+      <div className="flex flex-col gap-1">
+        <h3 className="text-lg font-semibold text-white">Trade {ticker}</h3>
+        <div className="flex items-center justify-between text-xs text-slate-400">
+          <span>{form.side === 'buy' ? 'Avail Balance:' : 'Avail Quantity:'}</span>
+          <span className="font-medium text-slate-300">
+            {form.side === 'buy' ? `$${money(availableBalance)}` : `${Number(ownedQuantity).toLocaleString()} ${ticker}`}
+          </span>
+        </div>
+      </div>
 
       <form
-        className="mt-4 space-y-4"
+        className="mt-5 space-y-5"
         onSubmit={(e) => {
           e.preventDefault();
           if (validationError) return;
@@ -83,12 +113,12 @@ export default function OrderPanel({
           });
         }}
       >
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex rounded-xl bg-panel2 p-1 border border-border">
           <button
             type="button"
             onClick={() => setForm({ ...form, side: 'buy' })}
-            className={`rounded-xl px-4 py-3 text-sm font-semibold transition ${
-              form.side === 'buy' ? 'bg-green text-slate-950' : 'bg-white/5 text-slate-300'
+            className={`flex-1 rounded-lg py-2 text-sm font-semibold transition ${
+              form.side === 'buy' ? 'bg-green text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-300'
             }`}
           >
             Buy
@@ -96,70 +126,137 @@ export default function OrderPanel({
           <button
             type="button"
             onClick={() => setForm({ ...form, side: 'sell' })}
-            className={`rounded-xl px-4 py-3 text-sm font-semibold transition ${
-              form.side === 'sell' ? 'bg-red text-white' : 'bg-white/5 text-slate-300'
+            className={`flex-1 rounded-lg py-2 text-sm font-semibold transition ${
+              form.side === 'sell' ? 'bg-red text-white shadow-sm' : 'text-slate-400 hover:text-slate-300'
             }`}
           >
             Sell
           </button>
         </div>
 
-        <select
-          className="w-full rounded-xl border border-border bg-panel2 px-4 py-3 text-sm outline-none"
-          value={form.orderType}
-          onChange={(e) => setForm({ ...form, orderType: e.target.value })}
-        >
-          <option value="market">Market</option>
-          <option value="limit">Limit</option>
-        </select>
+        <div className="flex rounded-xl bg-panel2 p-1 border border-border">
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, orderType: 'market' })}
+            className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition ${
+              form.orderType === 'market' ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            Market
+          </button>
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, orderType: 'limit' })}
+            className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition ${
+              form.orderType === 'limit' ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-slate-300'
+            }`}
+          >
+            Limit
+          </button>
+        </div>
 
-        <input
-          className="w-full rounded-xl border border-border bg-panel2 px-4 py-3 text-sm outline-none"
-          type="number"
-          min="1"
-          value={form.quantity}
-          onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
-          placeholder="Quantity"
-        />
+        <div className="space-y-3">
+          {form.orderType === 'limit' ? (
+            <div className="flex items-center rounded-xl border border-border bg-panel2 px-4 py-3 transition focus-within:border-accent">
+              <span className="w-16 text-sm text-slate-500">Price</span>
+              <input
+                className="flex-1 bg-transparent text-right text-sm text-white outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.limitPrice}
+                onChange={(e) => setForm({ ...form, limitPrice: e.target.value })}
+                placeholder="0.00"
+              />
+              <span className="ml-3 text-sm font-medium text-slate-400">USD</span>
+            </div>
+          ) : (
+            <div className="flex items-center rounded-xl border border-border bg-panel2 px-4 py-3 opacity-60">
+              <span className="w-16 text-sm text-slate-500">Price</span>
+              <input
+                className="flex-1 bg-transparent text-right text-sm text-white outline-none cursor-not-allowed"
+                type="text"
+                readOnly
+                value="Market"
+              />
+              <span className="ml-3 text-sm font-medium text-slate-400">USD</span>
+            </div>
+          )}
 
-        {form.orderType === 'limit' ? (
-          <input
-            className="w-full rounded-xl border border-border bg-panel2 px-4 py-3 text-sm outline-none"
-            type="number"
-            step="0.01"
-            value={form.limitPrice}
-            onChange={(e) => setForm({ ...form, limitPrice: e.target.value })}
-            placeholder="Limit Price"
-          />
-        ) : null}
-
-        <div className="rounded-2xl border border-border bg-white/5 p-4 text-sm text-slate-300">
-          <div className="flex items-center justify-between">
-            <span>Estimated cost</span>
-            <span className="font-semibold text-white">${money(form.side === 'buy' ? estimatedCost : sellValue)}</span>
+          <div className="flex items-center rounded-xl border border-border bg-panel2 px-4 py-3 transition focus-within:border-accent">
+            <span className="w-16 text-sm text-slate-500">Amount</span>
+            <input
+              className="flex-1 bg-transparent text-right text-sm text-white outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              type="number"
+              min="0"
+              step="1"
+              value={form.quantity || ''}
+              onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
+              placeholder="0"
+            />
+            <span className="ml-3 text-sm font-medium text-slate-400">{ticker}</span>
           </div>
-          <div className="mt-2 flex items-center justify-between">
-            <span>Fees</span>
-            <span className="font-semibold text-white">${money(fees)}</span>
+
+          <div className="px-1 pt-1 pb-2">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={currentPercent || 0}
+              onChange={(e) => handlePercentClick(Number(e.target.value))}
+              className="w-full accent-accent h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="mt-3 flex justify-between gap-2">
+              {[25, 50, 75, 100].map(pct => (
+                <button
+                  key={pct}
+                  type="button"
+                  onClick={() => handlePercentClick(pct)}
+                  className="flex-1 rounded-md border border-border bg-white/5 py-1 text-[11px] font-medium text-slate-400 transition hover:bg-white/10 hover:text-white"
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
-            <span>Total</span>
-            <span className="font-semibold text-white">${money(form.side === 'buy' ? totalCost : sellValue - fees)}</span>
+
+          <div className="flex items-center rounded-xl border border-border bg-panel2 px-4 py-3 opacity-60">
+            <span className="w-16 text-sm text-slate-500">Total</span>
+            <input
+              className="flex-1 bg-transparent text-right text-sm text-white outline-none cursor-not-allowed"
+              type="text"
+              readOnly
+              value={money(form.side === 'buy' ? estimatedCost : sellValue)}
+            />
+            <span className="ml-3 text-sm font-medium text-slate-400">USD</span>
           </div>
         </div>
 
-        {validationError ? <p className="text-sm text-red">{validationError}</p> : null}
+        <div className="rounded-2xl border border-border bg-white/5 p-4 text-xs text-slate-400">
+          <div className="flex items-center justify-between">
+            <span>Fees (0.1%)</span>
+            <span className="text-slate-300">${money(fees)}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between border-t border-border/50 pt-2 font-medium">
+            <span className="text-slate-300">Total {form.side === 'buy' ? 'Cost' : 'Return'}</span>
+            <span className="text-white">${money(form.side === 'buy' ? totalCost : sellValue - fees)}</span>
+          </div>
+        </div>
+
+        {validationError ? <p className="text-sm text-red font-medium">{validationError}</p> : null}
         {mutation.isError ? (
-          <p className="text-sm text-red">{mutation.error?.response?.data?.message || 'Order failed'}</p>
+          <p className="text-sm text-red font-medium">{mutation.error?.response?.data?.message || 'Order failed'}</p>
         ) : null}
-        {mutation.isSuccess ? <p className="text-sm text-green">Order submitted successfully.</p> : null}
+        {mutation.isSuccess ? <p className="text-sm text-green font-medium">Order submitted successfully.</p> : null}
 
         <button
           type="submit"
-          className="w-full rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-accent2 disabled:opacity-60"
-          disabled={mutation.isLoading || Boolean(validationError)}
+          className={`w-full rounded-xl px-4 py-3.5 text-sm font-bold text-white transition disabled:opacity-50 ${
+            form.side === 'buy' ? 'bg-green hover:bg-green/90 text-slate-950' : 'bg-red hover:bg-red/90'
+          }`}
+          disabled={mutation.isLoading || Boolean(validationError) || form.quantity <= 0}
         >
-          {mutation.isLoading ? 'Submitting...' : 'Submit Order'}
+          {mutation.isLoading ? 'Submitting...' : `${form.side === 'buy' ? 'Buy' : 'Sell'} ${ticker}`}
         </button>
       </form>
     </div>
