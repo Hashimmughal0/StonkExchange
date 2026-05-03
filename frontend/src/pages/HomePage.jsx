@@ -181,10 +181,10 @@ export default function HomePage() {
                 StonkExchange
               </h1>
               <p className="text-2xl md:text-3xl text-white/90 font-medium mb-6">
-                Trading, perfected.
+                Full-Fledged Trading Exchange
               </p>
               <p className="text-lg text-white/60 max-w-xl mx-auto">
-                The ultimate platform for modern investors. Lightning-fast execution, re‑engineered for a market that never sleeps.
+                Complete stock trading platform with real-time market simulation, advanced price engines, and instant order fulfillment. Experience institutional-grade trading infrastructure.
               </p>
             </motion.div>
 
@@ -194,14 +194,14 @@ export default function HomePage() {
               className="absolute inset-0 flex-col justify-center items-start text-left max-w-md pointer-events-auto"
             >
               <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-br from-white to-[#00D6FF]/80">
-                Precision-engineered for speed.
+                Advanced Trading Infrastructure
               </h2>
               <div className="space-y-4 text-white/60 text-lg">
                 <p>
-                  High-frequency trading engines, advanced order matching, and zero latency deliver institutional-grade performance.
+                  Built-in market simulator generates realistic price movements with sophisticated algorithms and volatility modeling.
                 </p>
                 <p>
-                  Every millisecond is optimized for maximum profit potential—trade after trade.
+                  High-performance price engine processes real-time data with advanced order matching and instant trade execution.
                 </p>
               </div>
             </motion.div>
@@ -212,12 +212,12 @@ export default function HomePage() {
               className="absolute inset-0 flex-col justify-center items-end text-right ml-auto max-w-md pointer-events-auto"
             >
               <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-bl from-white to-[#0050FF]/80">
-                Deep market insights.
+                Comprehensive Portfolio Management
               </h2>
               <ul className="space-y-4 text-white/60 text-lg">
-                <li>Real-time analytics monitor global trends instantly.</li>
-                <li>AI-driven predictions adapt to market volatility.</li>
-                <li>Your strategy stays sharp—noise, hype, and FUD fade away.</li>
+                <li>Real-time portfolio tracking with live P&L calculations and performance analytics.</li>
+                <li>Advanced order book visualization and market depth analysis for informed trading decisions.</li>
+                <li>Complete order lifecycle management from placement to execution and settlement.</li>
               </ul>
             </motion.div>
 
@@ -227,11 +227,11 @@ export default function HomePage() {
               className="absolute inset-0 flex-col justify-center items-start text-left max-w-md pointer-events-auto"
             >
               <h2 className="text-4xl md:text-5xl font-bold tracking-tight mb-6 text-white/90 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]">
-                Bank-grade security.
+                Enterprise-Grade Reliability
               </h2>
               <div className="space-y-4 text-white/60 text-lg">
-                <p>Industry-leading encryption secures your portfolio and sensitive data.</p>
-                <p>Multi-layer cold storage ensures your assets are protected against every threat, so you can sleep easily.</p>
+                <p>Robust PostgreSQL database with ACID transactions ensures data integrity and reliable trade processing.</p>
+                <p>Comprehensive audit logging and transaction history provide complete transparency and regulatory compliance.</p>
               </div>
             </motion.div>
 
@@ -241,10 +241,10 @@ export default function HomePage() {
               className="absolute inset-0 flex-col items-center justify-center text-center pointer-events-auto"
             >
               <h2 className="text-5xl md:text-7xl font-bold tracking-tighter mb-4 text-white">
-                Trade everything. <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0050FF] to-[#00D6FF]">Fear nothing.</span>
+                Complete Trading Ecosystem. <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0050FF] to-[#00D6FF]">Built for Scale.</span>
               </h2>
               <p className="text-xl md:text-2xl text-white/80 mb-10">
-                StonkExchange. Built for traders, designed for profit.
+                From market simulation to order fulfillment—everything you need for professional trading.
               </p>
               <div className="flex flex-col sm:flex-row gap-6 items-center">
                 <a href="/login" className="px-8 py-4 bg-white text-black font-semibold rounded-full hover:scale-105 transition-transform duration-300 shadow-[0_0_30px_rgba(255,255,255,0.2)]">
@@ -255,7 +255,7 @@ export default function HomePage() {
                 </a>
               </div>
               <p className="mt-8 text-sm text-white/40">
-                Engineered for day traders, diamond hands, and everything in between.
+                Full-stack trading platform with market simulation, price engines, and complete order lifecycle management.
               </p>
             </motion.div>
 
