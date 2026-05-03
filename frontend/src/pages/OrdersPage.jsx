@@ -2,13 +2,15 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from 'react-query';
 import OrdersTable from '../components/orders/OrdersTable';
 import { cancelOrder, fetchOrders } from '../features/trading/tradingService';
+import { useAuthStore } from '../store/authStore';
 
 export default function OrdersPage() {
   const [filter, setFilter] = useState('open');
   const queryClient = useQueryClient();
+  const token = useAuthStore((state) => state.token);
 
   const ordersQuery = useQuery({
-    queryKey: ['orders'],
+    queryKey: ['orders', token],
     queryFn: fetchOrders,
     refetchInterval: 2_000
   });
@@ -17,9 +19,9 @@ export default function OrdersPage() {
     mutationFn: cancelOrder,
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['orders'] }),
-        queryClient.invalidateQueries({ queryKey: ['wallet'] }),
-        queryClient.invalidateQueries({ queryKey: ['portfolio'] })
+        queryClient.invalidateQueries({ queryKey: ['orders', token] }),
+        queryClient.invalidateQueries({ queryKey: ['wallet', token] }),
+        queryClient.invalidateQueries({ queryKey: ['portfolio', token] })
       ]);
     }
   });

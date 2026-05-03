@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useQuery } from 'react-query';
+import { useQuery, useQueryClient } from 'react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
@@ -7,6 +7,7 @@ import { logoutRequest } from '../features/auth/authService';
 
 export function useAuth() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const setAuth = useAuthStore((state) => state.setAuth);
@@ -34,6 +35,8 @@ export function useAuth() {
       await logoutRequest();
     } finally {
       clearAuth();
+      // Clear all cached queries so old user data is removed
+      queryClient.clear();
       navigate('/login', { replace: true });
     }
   };

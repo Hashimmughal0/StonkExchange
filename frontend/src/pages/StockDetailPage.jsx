@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from 'react-query';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuthStore } from '../store/authStore';
 import PriceChart from '../components/charts/PriceChart';
 import OrderPanel from '../components/trading/OrderPanel';
 import { fetchOrderBook, fetchPriceSeries, fetchStock, fetchTrades } from '../features/trading/tradingService';
@@ -21,13 +22,17 @@ export default function StockDetailPage() {
   const stockQuery = useQuery({
     queryKey: ['stock-detail', ticker],
     queryFn: () => fetchStock(ticker),
-    refetchInterval: 5_000
+    refetchInterval: 1_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true
   });
 
   const chartQuery = useQuery({
     queryKey: ['stock-chart', ticker, timeframe.label],
     queryFn: () => fetchPriceSeries(ticker, timeframe.limit),
-    refetchInterval: timeframe.refetch
+    refetchInterval: timeframe.refetch,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true
   });
 
   const orderBookQuery = useQuery({
@@ -39,15 +44,36 @@ export default function StockDetailPage() {
   const tradesQuery = useQuery({
     queryKey: ['stock-trades', ticker],
     queryFn: () => fetchTrades(ticker),
-    refetchInterval: 2_000
+    refetchInterval: 2_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true
   });
-  const walletQuery = useQuery({ queryKey: ['wallet'], queryFn: fetchWallet });
-  const portfolioQuery = useQuery({ queryKey: ['portfolio'], queryFn: fetchPortfolio });
+  const token = useAuthStore((state) => state.token);
+  const walletQuery = useQuery({ queryKey: ['wallet', token], queryFn: fetchWallet });
+  const portfolioQuery = useQuery({ queryKey: ['portfolio', token], queryFn: fetchPortfolio });
 
   const latest = useMemo(() => {
     const data = chartQuery.data || [];
     return data[data.length - 1] || null;
   }, [chartQuery.data]);
+
+  const latestTrade = useMemo(() => {
+    return (tradesQuery.data || [])[0] || null;
+  }, [tradesQuery.data]);
+
+  const livePrice = useMemo(() => {
+    const tradePrice = latestTrade?.price ? Number(latestTrade.price) : null;
+    const chartPrice = latest?.close_price ? Number(latest.close_price) : null;
+    const stockPrice = stockQuery.data?.last_price ? Number(stockQuery.data.last_price) : null;
+
+    if (tradePrice !== null && tradePrice !== 0) {
+      return tradePrice;
+    }
+    if (chartPrice !== null && chartPrice !== 0) {
+      return chartPrice;
+    }
+    return stockPrice || 0;
+  }, [latest, latestTrade, stockQuery.data]);
 
   const sellRows = useMemo(
     () =>
@@ -98,7 +124,7 @@ export default function StockDetailPage() {
               <div className="rounded-2xl border border-border bg-white/5 px-4 py-3">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Last</p>
                 <p className="mt-2 text-lg font-semibold text-white">
-                  ${Number(stockQuery.data?.last_price || 0).toFixed(2)}
+                  ${Number(livePrice).toFixed(2)}
                 </p>
               </div>
               <div className="rounded-2xl border border-border bg-white/5 px-4 py-3">
@@ -135,9 +161,6 @@ export default function StockDetailPage() {
                 </button>
               ))}
             </div>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-              Live refresh {Math.round(timeframe.refetch / 1000)}s
-            </p>
           </div>
           <PriceChart data={chartQuery.data || []} />
         </div>
@@ -211,7 +234,7 @@ export default function StockDetailPage() {
       <aside className="min-w-0 space-y-6">
         <OrderPanel
           ticker={ticker}
-          lastPrice={stockQuery.data?.last_price || latest?.close_price || 0}
+          lastPrice={livePrice}
           availableBalance={walletQuery.data?.cash_balance || 0}
           ownedQuantity={ownedQuantity}
         />
@@ -219,10 +242,7 @@ export default function StockDetailPage() {
         <div className="glass-panel p-6">
           <h3 className="text-lg font-semibold text-white">Live Price</h3>
           <p className="mt-2 text-3xl font-bold text-green">
-            ${Number(stockQuery.data?.last_price || latest?.close_price || 0).toFixed(2)}
-          </p>
-          <p className="mt-2 text-sm text-slate-400">
-            Updates every {Math.round(timeframe.refetch / 1000)} seconds while the page is open.
+            ${Number(livePrice).toFixed(2)}
           </p>
         </div>
       </aside>

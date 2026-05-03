@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from 'react-query';
+import { useAuthStore } from '../../store/authStore';
 import { placeOrder } from '../../features/trading/tradingService';
 
 function money(value) {
@@ -14,6 +15,7 @@ export default function OrderPanel({
   onSuccess
 }) {
   const queryClient = useQueryClient();
+  const token = useAuthStore((state) => state.token);
   const [form, setForm] = useState({
     side: 'buy',
     orderType: 'market',
@@ -73,13 +75,12 @@ export default function OrderPanel({
     mutationFn: placeOrder,
     onSuccess: async (data) => {
       await Promise.all([
-        queryClient.invalidateQueries(),
-        queryClient.invalidateQueries({ queryKey: ['stock-detail', ticker] }),
-        queryClient.invalidateQueries({ queryKey: ['stock-orderbook', ticker] }),
-        queryClient.invalidateQueries({ queryKey: ['stock-trades', ticker] }),
-        queryClient.invalidateQueries({ queryKey: ['wallet'] }),
-        queryClient.invalidateQueries({ queryKey: ['portfolio'] }),
-        queryClient.invalidateQueries({ queryKey: ['stocks'] })
+        queryClient.refetchQueries({ queryKey: ['stock-detail', ticker], exact: true }),
+        queryClient.refetchQueries({ queryKey: ['stock-orderbook', ticker], exact: true }),
+        queryClient.refetchQueries({ queryKey: ['stock-trades', ticker], exact: true }),
+        queryClient.refetchQueries({ queryKey: ['wallet', token], exact: true }),
+        queryClient.refetchQueries({ queryKey: ['portfolio', token], exact: true }),
+        queryClient.refetchQueries({ queryKey: ['stocks'], exact: true })
       ]);
       setForm(prev => ({ ...prev, quantity: 0 }));
       if (onSuccess) onSuccess(data);

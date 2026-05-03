@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from 'react-query';
+import { useAuthStore } from '../store/authStore';
 import { fetchPortfolio, fetchWallet, fetchPnL } from '../features/portfolio/portfolioService';
 import { fetchStocks } from '../features/trading/tradingService';
 
@@ -13,10 +14,11 @@ function pnlColor(value) {
 }
 
 export default function PortfolioPage() {
-  const walletQuery = useQuery({ queryKey: ['wallet'], queryFn: fetchWallet });
-  const portfolioQuery = useQuery({ queryKey: ['portfolio'], queryFn: fetchPortfolio });
+  const token = useAuthStore((state) => state.token);
+  const walletQuery = useQuery({ queryKey: ['wallet', token], queryFn: fetchWallet });
+  const portfolioQuery = useQuery({ queryKey: ['portfolio', token], queryFn: fetchPortfolio });
   const stocksQuery = useQuery({ queryKey: ['stocks'], queryFn: fetchStocks });
-  const pnlQuery = useQuery({ queryKey: ['pnl'], queryFn: fetchPnL, refetchInterval: 5000 });
+  const pnlQuery = useQuery({ queryKey: ['pnl', token], queryFn: fetchPnL, refetchInterval: 5000 });
 
   const holdings = useMemo(() => {
     return (portfolioQuery.data || [])

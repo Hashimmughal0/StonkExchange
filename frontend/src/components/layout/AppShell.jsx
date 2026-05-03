@@ -1,13 +1,16 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useQuery } from 'react-query';
 import { useAuth } from '../../hooks/useAuth';
+import { useAuthStore } from '../../store/authStore';
 import { fetchWallet } from '../../features/portfolio/portfolioService';
 
 export default function AppShell() {
   const { user, logout } = useAuth();
+  const token = useAuthStore((state) => state.token);
   const walletQuery = useQuery({
-    queryKey: ['topbar-wallet'],
-    queryFn: fetchWallet
+    queryKey: ['wallet', token],
+    queryFn: fetchWallet,
+    refetchInterval: 2_000
   });
 
   const navItems = [
